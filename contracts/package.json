@@ -1,5 +1,5 @@
 {
-  "name": "spark-sample",
+  "name": "@minorio/contracts",
   "version": "0.1.0",
   "description": "",
   "author": "",
@@ -24,7 +24,6 @@
   },
   "lint-staged": {
     "**/*": [
-      "eslint src/* --fix",
       "prettier --write --ignore-unknown"
     ]
   },

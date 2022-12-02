@@ -1,4 +1,4 @@
-# Mina zkApp: Spark Sample
+# Mina zkApp: Minorio
 
 This template uses TypeScript.
 
