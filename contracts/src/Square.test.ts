@@ -1,4 +1,4 @@
-import { Add } from './Add';
+import { Square } from './Square';
 import {
   isReady,
   shutdown,
@@ -22,11 +22,11 @@ describe('Add', () => {
   let deployerAccount: PrivateKey,
     zkAppAddress: PublicKey,
     zkAppPrivateKey: PrivateKey,
-    zkApp: Add;
+    zkApp: Square;
 
   beforeAll(async () => {
     await isReady;
-    if (proofsEnabled) Add.compile();
+    if (proofsEnabled) Square.compile();
   });
 
   beforeEach(() => {
@@ -35,7 +35,7 @@ describe('Add', () => {
     deployerAccount = Local.testAccounts[0].privateKey;
     zkAppPrivateKey = PrivateKey.random();
     zkAppAddress = zkAppPrivateKey.toPublicKey();
-    zkApp = new Add(zkAppAddress);
+    zkApp = new Square(zkAppAddress);
   });
 
   afterAll(() => {
@@ -48,7 +48,7 @@ describe('Add', () => {
   async function localDeploy() {
     const txn = await Mina.transaction(deployerAccount, () => {
       AccountUpdate.fundNewAccount(deployerAccount);
-      zkApp.deploy();
+      zkApp.deploy({});
     });
     await txn.prove();
     // this tx needs .sign(), because `deploy()` adds an account update that requires signature authorization
@@ -58,7 +58,7 @@ describe('Add', () => {
   it('generates and deploys the `Add` smart contract', async () => {
     await localDeploy();
     const num = zkApp.num.get();
-    expect(num).toEqual(Field(1));
+    expect(num).toEqual(Field(3));
   });
 
   it('correctly updates the num state on the `Add` smart contract', async () => {
@@ -66,12 +66,12 @@ describe('Add', () => {
 
     // update transaction
     const txn = await Mina.transaction(deployerAccount, () => {
-      zkApp.update();
+      zkApp.update(Field(3).square());
     });
     await txn.prove();
     await txn.send();
 
     const updatedNum = zkApp.num.get();
-    expect(updatedNum).toEqual(Field(3));
+    expect(updatedNum).toEqual(Field(9));
   });
 });

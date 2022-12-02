@@ -1,69 +1,91 @@
-/**
- * This script can be used to interact with the Add contract, after deploying it.
- *
- * We call the update() method on the contract, create a proof and send it to the chain.
- * The endpoint that we interact with is read from your config.json.
- *
- * This simulates a user interacting with the zkApp from a browser, except that here, sending the transaction happens
- * from the script and we're using your pre-funded zkApp account to pay the transaction fee. In a real web app, the user's wallet
- * would send the transaction and pay the fee.
- *
- * To run locally:
- * Build the project: `$ npm run build`
- * Run with node:     `$ node build/src/interact.js <network>`.
- */
-import { Mina, PrivateKey, shutdown } from 'snarkyjs';
-import fs from 'fs/promises';
-import { Add } from './Add.js';
+import { Square } from './Square.js';
+import {
+  isReady,
+  shutdown,
+  Field,
+  Mina,
+  PrivateKey,
+  AccountUpdate,
+} from 'snarkyjs';
 
-// check command line arg
-let network = process.argv[2];
-if (!network)
-  throw Error(`Missing <network> argument.
+(async function main() {
+  await isReady;
 
-Usage:
-node build/src/interact.js <network>
+  console.log('SnarkyJS loaded');
 
-Example:
-node build/src/interact.js berkeley
-`);
-Error.stackTraceLimit = 1000;
+  const Local = Mina.LocalBlockchain();
+  Mina.setActiveInstance(Local);
+  const deployerAccount = Local.testAccounts[0].privateKey;
 
-// parse config and private key from file
-type Config = { networks: Record<string, { url: string; keyPath: string }> };
-let configJson: Config = JSON.parse(await fs.readFile('config.json', 'utf8'));
-let config = configJson.networks[network];
-let key: { privateKey: string } = JSON.parse(
-  await fs.readFile(config.keyPath, 'utf8')
-);
-let zkAppKey = PrivateKey.fromBase58(key.privateKey);
+  const useProof = false;
 
-// set up Mina instance and contract we interact with
-const Network = Mina.Network(config.url);
-Mina.setActiveInstance(Network);
-let zkAppAddress = zkAppKey.toPublicKey();
-let zkApp = new Add(zkAppAddress);
+  if (useProof) {
+    Square.compile();
+  }
 
-// compile the contract to create prover keys
-console.log('compile the contract...');
-await Add.compile();
+  // ----------------------------------------------------
 
-// call update() and send transaction
-console.log('build transaction and create proof...');
-let tx = await Mina.transaction({ feePayerKey: zkAppKey, fee: 0.1e9 }, () => {
-  zkApp.update();
-});
-await tx.prove();
-console.log('send transaction...');
-let sentTx = await tx.send();
+  // create a destination we will deploy the smart contract to
+  const zkAppPrivateKey = PrivateKey.random();
+  const zkAppAddress = zkAppPrivateKey.toPublicKey();
 
-if (sentTx.hash() !== undefined) {
-  console.log(`
-Success! Update transaction sent.
+  // create an instance of Square - and deploy it to zkAppAddress
+  const zkAppInstance = new Square(zkAppAddress);
+  const deploy_txn = await Mina.transaction(deployerAccount, () => {
+    AccountUpdate.fundNewAccount(deployerAccount);
+    zkAppInstance.deploy({ zkappKey: zkAppPrivateKey });
+    zkAppInstance.sign(zkAppPrivateKey);
+  });
+  await deploy_txn.send();
 
-Your smart contract state will be updated
-as soon as the transaction is included in a block:
-https://berkeley.minaexplorer.com/transaction/${sentTx.hash()}
-`);
-}
-shutdown();
+  // get the initial state of Square after deployment
+  const num0 = zkAppInstance.num.get();
+  console.log('state after init:', num0.toString());
+
+  // ----------------------------------------------------
+
+  const txn1 = await Mina.transaction(deployerAccount, () => {
+    zkAppInstance.update(Field(9));
+    zkAppInstance.sign(zkAppPrivateKey);
+  });
+  await txn1.send();
+
+  const num1 = zkAppInstance.num.get();
+  console.log('state after txn1:', num1.toString());
+
+  // ----------------------------------------------------
+
+  try {
+    const txn2 = await Mina.transaction(deployerAccount, () => {
+      zkAppInstance.update(Field(75));
+      zkAppInstance.sign(zkAppPrivateKey);
+    });
+    await txn2.send();
+  } catch (ex: any) {
+    console.log(ex.message);
+  }
+  const num2 = zkAppInstance.num.get();
+  console.log('state after txn2:', num2.toString());
+
+  // ----------------------------------------------------
+
+  const txn3 = await Mina.transaction(deployerAccount, () => {
+    zkAppInstance.update(Field(81));
+    if (!useProof) {
+      zkAppInstance.sign(zkAppPrivateKey);
+    }
+  });
+  if (useProof) {
+    await txn3.prove();
+  }
+  await txn3.send();
+
+  const num3 = zkAppInstance.num.get();
+  console.log('state after txn3:', num3.toString());
+
+  // ----------------------------------------------------
+
+  console.log('Shutting down');
+
+  await shutdown();
+})();
